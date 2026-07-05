@@ -3,7 +3,7 @@
 
 ### Airline Operations Overview
 
-![Overview](screenshots/01_overview.png)
+![Overview](screenshots/01_overview.jpg)
 
 
 **Project Overview**
@@ -156,15 +156,15 @@ KPI card showing total flights
 
 ### Delay Causes Analysis
 
-![Delay Causes](screenshots/02_delay_causes.png)
+![Delay Causes](screenshots/02_delay_causes.jpg)
 
 ### Airline Delay Ranking & Causes
 
-![Ranking](screenshots/03_carrier_ranking.png)
+![Ranking](screenshots/03_carrier_ranking.jpg)
 
 ### Carrier Performance Scatter Plot
 
-![Scatter Plot](screenshots/04_scatter_plot.png)
+![Scatter Plot](screenshots/04_scatter_plot.jpg)
 
 
 **Tools & Technologies**
