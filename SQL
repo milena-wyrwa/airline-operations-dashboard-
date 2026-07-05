@@ -1,0 +1,309 @@
+-- Data type conversion and column extension
+-- Adding structured numeric columns for analysis
+
+ALTER TABLE stg_airline_delays
+ADD year_int INT,
+    month_int INT,
+
+    arr_flights_f FLOAT,
+    arr_del15_f FLOAT,
+
+    carrier_ct_f FLOAT,
+    weather_ct_f FLOAT,
+    nas_ct_f FLOAT,
+    security_ct_f FLOAT,
+    late_aircraft_ct_f FLOAT,
+
+    arr_cancelled_f FLOAT,
+    arr_diverted_f FLOAT,
+
+    arr_delay_f FLOAT,
+    carrier_delay_f FLOAT,
+    weather_delay_f FLOAT,
+    nas_delay_f FLOAT,
+    security_delay_f FLOAT,
+    late_aircraft_delay_f FLOAT;
+
+
+-- Data type transformation from raw text fields to numeric format
+-- Using TRY_CAST to handle invalid values safely
+
+UPDATE dbo.Airline_Delay_Cause_RAW
+SET
+    year_int = TRY_CAST(year AS INT),
+    month_int = TRY_CAST(month AS INT),
+
+    arr_flights_f = TRY_CAST(arr_flights AS FLOAT),
+    arr_del15_f = TRY_CAST(arr_del15 AS FLOAT),
+
+    carrier_ct_f = TRY_CAST(carrier_ct AS FLOAT),
+    weather_ct_f = TRY_CAST(weather_ct AS FLOAT),
+    nas_ct_f = TRY_CAST(nas_ct AS FLOAT),
+    security_ct_f = TRY_CAST(security_ct AS FLOAT),
+    late_aircraft_ct_f = TRY_CAST(late_aircraft_ct AS FLOAT),
+
+    arr_cancelled_f = TRY_CAST(arr_cancelled AS FLOAT),
+    arr_diverted_f = TRY_CAST(arr_diverted AS FLOAT),
+
+    arr_delay_f = TRY_CAST(arr_delay AS FLOAT),
+
+    carrier_delay_f = TRY_CAST(carrier_delay AS FLOAT),
+    weather_delay_f = TRY_CAST(weather_delay AS FLOAT),
+    nas_delay_f = TRY_CAST(nas_delay AS FLOAT),
+    security_delay_f = TRY_CAST(security_delay AS FLOAT),
+    late_aircraft_delay_f = TRY_CAST(late_aircraft_delay AS FLOAT);
+
+
+-- Quick data inspection after transformation
+SELECT *
+FROM dbo.Airline_Delay_cause_raw;
+
+
+-- Removing original string-based columns after transformation
+-- Keeping only cleaned numeric structure
+
+ALTER TABLE dbo.Airline_Delay_Cause_RAW
+DROP COLUMN
+    year,
+    month,
+
+    arr_flights,
+    arr_del15,
+
+    carrier_ct,
+    weather_ct,
+    nas_ct,
+    security_ct,
+    late_aircraft_ct,
+
+    arr_cancelled,
+    arr_diverted,
+
+    arr_delay,
+    carrier_delay,
+    weather_delay,
+    nas_delay,
+    security_delay,
+    late_aircraft_delay;
+
+
+-- Checking missing values in key operational metrics
+-- Ensures data completeness for analysis
+
+SELECT *
+FROM dbo.Airline_Delay_cause_raw
+WHERE arr_flights_f IS NULL OR
+      arr_del15_f IS NULL OR
+
+      carrier_ct_f IS NULL OR
+      weather_ct_f IS NULL OR
+      nas_ct_f IS NULL OR
+      security_ct_f IS NULL OR
+      late_aircraft_ct_f IS NULL OR
+
+      arr_cancelled_f IS NULL OR
+      arr_diverted_f IS NULL OR
+
+      arr_delay_f IS NULL OR
+      carrier_delay_f IS NULL OR
+      weather_delay_f IS NULL OR
+      nas_delay_f IS NULL OR
+      security_delay_f IS NULL OR
+      late_aircraft_delay_f IS NULL;
+
+
+-- Missing values are treated as structural gaps rather than zero events
+-- (e.g. absence of recorded flight data rather than no delay)
+
+
+-- Duplicate check based on time, carrier, and airport granularity
+
+WITH cte_duplicat_check AS (
+    SELECT *,
+           COUNT(*) OVER (PARTITION BY year_int, month_int, carrier, airport) AS duplicate_count
+    FROM dbo.Airline_Delay_Cause_RAW
+)
+SELECT *
+FROM cte_duplicat_check
+WHERE duplicate_count > 1;
+
+
+-- Data quality validation: ensuring logical consistency of delay counts
+SELECT *
+FROM dbo.Airline_Delay_Cause_RAW
+WHERE carrier_ct_f > arr_del15_f;
+
+
+-- Consistency check for delay share calculations
+-- Ensures that delay cause shares sum approximately to 1
+
+WITH cte_delay_check AS (
+    SELECT
+        year_int,
+        month_int,
+        carrier,
+        arr_del15_f,
+        carrier_del_share + weather_del_share + nas_del_share +
+        security_del_share + late_aircraft_del_share AS sum_delay
+    FROM vw_delay_share
+)
+SELECT *
+FROM cte_delay_check
+WHERE ABS(sum_delay - 1) > 0.1;
+
+
+-- Data cleaning validation: trailing spaces in text fields
+
+SELECT *
+FROM dbo.Airline_Delay_Cause_RAW
+WHERE RIGHT(carrier_name, 1) = ' ';
+
+
+-- Validation of carrier code format and trimming issues
+
+SELECT *
+FROM dbo.Airline_Delay_Cause_RAW
+WHERE LEN(carrier) <> 2
+   OR carrier <> LTRIM(RTRIM(carrier));
+
+
+-- KPI view: high-level performance indicators per carrier and time period
+
+CREATE VIEW vw_KPI_Airline AS
+
+SELECT
+    year_int,
+    month_int,
+    carrier,
+    carrier_name,
+    arr_flights_f,
+    arr_del15_f,
+    arr_cancelled_f,
+
+    CASE
+        WHEN arr_flights_f = 0 THEN NULL
+        ELSE arr_del15_f * 1.0 / arr_flights_f
+    END AS delay_ratio,
+
+    CASE
+        WHEN arr_flights_f = 0 THEN NULL
+        ELSE arr_cancelled_f * 1.0 / arr_flights_f
+    END AS cancelled_ratio
+
+FROM dbo.Airline_Delay_Cause_RAW;
+
+
+-- Delay cause share view
+-- Calculates proportion of each delay type relative to total delayed flights
+
+CREATE VIEW vw_delay_share AS
+
+SELECT
+    year_int,
+    month_int,
+    carrier,
+    carrier_name,
+    arr_del15_f,
+
+    CASE WHEN arr_del15_f IS NULL OR arr_del15_f = 0 THEN NULL
+         ELSE carrier_ct_f * 1.0 / arr_del15_f END AS carrier_del_share,
+
+    CASE WHEN arr_del15_f IS NULL OR arr_del15_f = 0 THEN NULL
+         ELSE weather_ct_f * 1.0 / arr_del15_f END AS weather_del_share,
+
+    CASE WHEN arr_del15_f IS NULL OR arr_del15_f = 0 THEN NULL
+         ELSE nas_ct_f * 1.0 / arr_del15_f END AS nas_del_share,
+
+    CASE WHEN arr_del15_f IS NULL OR arr_del15_f = 0 THEN NULL
+         ELSE security_ct_f * 1.0 / arr_del15_f END AS security_del_share,
+
+    CASE WHEN arr_del15_f IS NULL OR arr_del15_f = 0 THEN NULL
+         ELSE late_aircraft_ct_f * 1.0 / arr_del15_f END AS late_aircraft_del_share
+
+FROM dbo.Airline_Delay_Cause_RAW;
+
+
+-- Final analytical view used in Power BI
+-- Combines time dimension, carrier info and all KPI metrics
+
+CREATE VIEW vw_airline_delay_final AS
+
+SELECT
+    DATEFROMPARTS(year_int, month_int, 1) AS month_date,
+    year_int,
+    month_int,
+    DATENAME(month, month_int) AS month_name,
+    carrier,
+    carrier_name,
+    arr_flights_f,
+    arr_del15_f,
+    arr_cancelled_f,
+
+    CASE
+        WHEN arr_flights_f = 0 THEN NULL
+        ELSE arr_del15_f * 1.0 / arr_flights_f
+    END AS delay_ratio,
+
+    CASE
+        WHEN arr_flights_f = 0 THEN NULL
+        ELSE arr_cancelled_f * 1.0 / arr_flights_f
+    END AS cancelled_ratio,
+
+    CASE WHEN arr_del15_f IS NULL OR arr_del15_f = 0 THEN NULL
+         ELSE carrier_ct_f * 1.0 / arr_del15_f END AS carrier_del_share,
+
+    CASE WHEN arr_del15_f IS NULL OR arr_del15_f = 0 THEN NULL
+         ELSE weather_ct_f * 1.0 / arr_del15_f END AS weather_del_share,
+
+    CASE WHEN arr_del15_f IS NULL OR arr_del15_f = 0 THEN NULL
+         ELSE nas_ct_f * 1.0 / arr_del15_f END AS nas_del_share,
+
+    CASE WHEN arr_del15_f IS NULL OR arr_del15_f = 0 THEN NULL
+         ELSE security_ct_f * 1.0 / arr_del15_f END AS security_del_share,
+
+    CASE WHEN arr_del15_f IS NULL OR arr_del15_f = 0 THEN NULL
+         ELSE late_aircraft_ct_f * 1.0 / arr_del15_f END AS late_aircraft_del_share
+
+FROM dbo.Airline_Delay_Cause_RAW;
+
+
+-- Unpivoted view for delay cause analysis in Power BI
+-- Converts wide format (multiple cause columns) into long format
+
+CREATE VIEW vw_delay_causes_performance AS
+
+WITH airline_delay AS (
+    SELECT
+        month_date,
+        carrier,
+        carrier_name,
+        carrier_del_share,
+        weather_del_share,
+        nas_del_share,
+        security_del_share,
+        late_aircraft_del_share
+    FROM vw_airline_delay_final
+)
+
+SELECT
+    month_date,
+    carrier,
+    carrier_name,
+    CASE delay_cause
+        WHEN 'carrier_del_share' THEN 'Carrier'
+        WHEN 'weather_del_share' THEN 'Weather'
+        WHEN 'nas_del_share' THEN 'NAS'
+        WHEN 'security_del_share' THEN 'Security'
+        WHEN 'late_aircraft_del_share' THEN 'Late Aircraft'
+    END AS delay_cause,
+    delay_share
+FROM airline_delay
+UNPIVOT (
+    delay_share FOR delay_cause IN (
+        carrier_del_share,
+        weather_del_share,
+        nas_del_share,
+        security_del_share,
+        late_aircraft_del_share
+    )
+) u;
