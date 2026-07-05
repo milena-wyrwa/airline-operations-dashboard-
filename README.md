@@ -1,6 +1,10 @@
 **Airline Operations Performance Dashboard**'
 
 
+### Airline Operations Overview
+
+![Overview](screenshots/01_overview.png)
+
 
 **Project Overview**
 
@@ -149,6 +153,18 @@ Carrier filter
 Time filter
 KPI card showing total flights
 
+
+### Delay Causes Analysis
+
+![Delay Causes](screenshots/02_delay_causes.png)
+
+### Airline Delay Ranking & Causes
+
+![Ranking](screenshots/03_carrier_ranking.png)
+
+### Carrier Performance Scatter Plot
+
+![Scatter Plot](screenshots/04_scatter_plot.png)
 
 
 **Tools & Technologies**
